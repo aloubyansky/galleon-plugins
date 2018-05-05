@@ -22,6 +22,7 @@ import static org.jboss.galleon.Constants.GLN_UNDEFINED;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -34,11 +35,10 @@ import org.jboss.as.cli.CommandFormatException;
 import org.jboss.as.cli.parsing.StateParser;
 import org.jboss.as.cli.parsing.arguments.ArgumentValueCallbackHandler;
 import org.jboss.as.cli.parsing.arguments.ArgumentValueInitialState;
+import org.jboss.as.controller.client.helpers.ClientConstants;
 import org.jboss.as.controller.client.helpers.Operations;
 import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.Property;
-import org.jboss.galleon.ArtifactCoords;
-import org.jboss.galleon.MessageWriter;
 import org.jboss.galleon.ProvisioningDescriptionException;
 import org.jboss.galleon.ProvisioningException;
 import org.jboss.galleon.plugin.ProvisionedConfigHandler;
@@ -50,6 +50,7 @@ import org.jboss.galleon.state.ProvisionedConfig;
 import org.jboss.galleon.state.ProvisionedFeature;
 import org.jboss.galleon.util.CollectionUtils;
 import org.wildfly.galleon.plugin.WfConstants;
+import org.wildfly.galleon.plugin.WfInstallPlugin;
 
 /**
  *
@@ -396,19 +397,29 @@ public class WfProvisionedConfigHandler implements ProvisionedConfigHandler {
         return Collections.singletonList(mop);
     }
 
-    private final MessageWriter messageWriter;
     private final WfConfigGenerator configGen;
+    private Path dumpScriptsDir;
 
     private final Map<ResolvedSpecId, List<ManagedOp>> specOps = new HashMap<>();
     private List<ManagedOp> ops = Collections.emptyList();
     private NameFilter paramFilter;
 
     private ModelNode composite;
-    private BufferedWriter writer;
+    private BufferedWriter scriptWriter;
+    private int batchCount;
+    private int opsCount;
+    private int nonBatchOpsCount;
 
     public WfProvisionedConfigHandler(ProvisioningRuntime runtime, WfConfigGenerator configGen) throws ProvisioningException {
-        this.messageWriter = runtime.getMessageWriter();
         this.configGen = configGen;
+        if(runtime.isOptionSet(WfInstallPlugin.OPTION_DUMP_CONFIG_SCRIPTS)) {
+            String value = runtime.getOptionValue(WfInstallPlugin.OPTION_DUMP_CONFIG_SCRIPTS);
+            if(value == null) {
+                dumpScriptsDir = Paths.get(System.getProperty("user.home")).resolve("galleon-scripts");
+            } else {
+                dumpScriptsDir = Paths.get(value);
+            }
+        }
     }
 
     @Override
@@ -427,17 +438,13 @@ public class WfProvisionedConfigHandler implements ProvisionedConfigHandler {
             throw new ProvisioningException("Unsupported config model " + config.getModel());
         }
 
-        //logScript(config);
-    }
-
-    @Override
-    public void nextFeaturePack(ArtifactCoords.Gav fpGav) throws ProvisioningException {
-        messageWriter.verbose("  %s", fpGav);
+        if(dumpScriptsDir != null) {
+            initScriptWriter(config);
+        }
     }
 
     @Override
     public void nextSpec(ResolvedFeatureSpec spec) throws ProvisioningException {
-        messageWriter.verbose("    SPEC %s", spec.getName());
         if(!spec.hasAnnotations()) {
             ops = Collections.emptyList();
             return;
@@ -473,7 +480,6 @@ public class WfProvisionedConfigHandler implements ProvisionedConfigHandler {
     @Override
     public void nextFeature(ProvisionedFeature feature) throws ProvisioningException {
         if (ops.isEmpty()) {
-            messageWriter.verbose("      %s", feature.getResolvedParams());
             return;
         }
         for(ManagedOp op : ops) {
@@ -483,19 +489,24 @@ public class WfProvisionedConfigHandler implements ProvisionedConfigHandler {
 
     @Override
     public void startBatch() throws ProvisioningException {
-        messageWriter.verbose("      START BATCH");
-        //logToFile("batch");
+        if(scriptWriter != null) {
+            writeScript("# starting batch " + ++batchCount);
+            writeScript("batch");
+        }
         composite = Operations.createCompositeOperation();
     }
 
     @Override
     public void endBatch() throws ProvisioningException {
-        messageWriter.verbose("      END BATCH");
-        //logToFile("run-batch");
+        if(scriptWriter != null) {
+            writeScript("run-batch");
+        }
         try {
             configGen.execute(composite);
         } catch(Throwable t) {
-            //closeLogFile();
+            if(scriptWriter != null) {
+                closeScriptWriter();
+            }
             if(t instanceof ProvisioningException) {
                 throw t;
             }
@@ -506,7 +517,9 @@ public class WfProvisionedConfigHandler implements ProvisionedConfigHandler {
 
     @Override
     public void done() throws ProvisioningException {
-        //closeLogFile();
+        if(scriptWriter != null) {
+            closeScriptWriter();
+        }
         configGen.stopEmbedded();
     }
 
@@ -543,16 +556,27 @@ public class WfProvisionedConfigHandler implements ProvisionedConfigHandler {
     }
 
     private void handleOp(ModelNode op) throws ProvisioningException {
-        //logOp(op);
+        if(scriptWriter != null) {
+            writeScript(op);
+            ++opsCount;
+            if(composite == null) {
+                ++nonBatchOpsCount;
+            }
+        }
 
         if(composite != null) {
             composite.get(WfConstants.STEPS).add(op);
         } else {
             try {
                 configGen.execute(op);
-            } catch(ProvisioningException e) {
-                //closeLogFile();
-                throw e;
+            } catch(Throwable t) {
+                if(scriptWriter != null) {
+                    closeScriptWriter();
+                }
+                if(t instanceof ProvisioningException) {
+                    throw t;
+                }
+                throw new ProvisioningException("Failed to execute operation " + op, t);
             }
         }
     }
@@ -588,49 +612,80 @@ public class WfProvisionedConfigHandler implements ProvisionedConfigHandler {
         return list;
     }
 
-    private void logScript(ProvisionedConfig config) {
+    private void initScriptWriter(ProvisionedConfig config) {
         try {
-            writer = Files.newBufferedWriter(Paths.get(System.getProperty("user.home")).resolve("galleon-scripts").resolve("script-" + config.getName()));
+            final Path scriptDir = dumpScriptsDir.resolve(config.getModel());
+            Files.createDirectories(scriptDir);
+            scriptWriter = Files.newBufferedWriter(scriptDir.resolve("script-" + config.getName()));
+            final StringBuilder buf = new StringBuilder();
+            buf.append("# Config");
+            if(config.getModel() != null) {
+                buf.append(" model=").append(config.getModel());
+            }
+            buf.append(" name=").append(config.getName());
+            writeScript(buf.toString());
+            writeScript("# Properties:");
+            for(Map.Entry<String, String> prop : config.getProperties().entrySet()) {
+                buf.setLength(2);
+                buf.append(prop.getKey());
+                final String value = prop.getValue();
+                if(value != null && !value.isEmpty()) {
+                    buf.append('=').append(value);
+                }
+                writeScript(buf.toString());
+            }
+            scriptWriter.newLine();
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    private void closeLogFile() {
+    private void closeScriptWriter() {
         try {
-            writer.close();
+            scriptWriter.newLine();
+
+            writeScript("# Operations total: " + opsCount);
+            opsCount = 0;
+
+            writeScript("# Batches total: " + batchCount);
+            batchCount = 0;
+
+            writeScript("# Individual operations total: " + nonBatchOpsCount);
+            nonBatchOpsCount = 0;
+
+            scriptWriter.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    private void logToFile(String line) {
+    private void writeScript(String line) {
         try {
-            writer.write(line);
-            writer.newLine();
+            scriptWriter.write(line);
+            scriptWriter.newLine();
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    private void logOp(ModelNode op) {
+    private void writeScript(ModelNode op) {
         try {
             final StringBuilder buf = new StringBuilder();
-            final List<Property> addrList = op.get("address").asPropertyList();
+            final List<Property> addrList = op.get(ClientConstants.ADDRESS).asPropertyList();
             if(!addrList.isEmpty()) {
                 for(Property addr : addrList) {
                     buf.append('/').append(addr.getName()).append('=').append(addr.getValue().asString());
                 }
             }
             buf.append(':');
-            buf.append(op.get("operation").asString());
+            buf.append(op.get(ClientConstants.OP).asString());
             final List<Property> params = op.asPropertyList();
             if(params.size() > 2) {
                 buf.append('(');
                 boolean comma = false;
                 for(Property param : params) {
                     final String paramName = param.getName();
-                    if(paramName.equals("address") || paramName.equals("operation")) {
+                    if(paramName.equals(ClientConstants.ADDRESS) || paramName.equals(ClientConstants.OP)) {
                         continue;
                     }
                     if(comma) {
@@ -642,8 +697,8 @@ public class WfProvisionedConfigHandler implements ProvisionedConfigHandler {
                 }
                 buf.append(')');
             }
-            writer.write(buf.toString());
-            writer.newLine();
+            scriptWriter.write(buf.toString());
+            scriptWriter.newLine();
         } catch (IOException e) {
             e.printStackTrace();
         }
