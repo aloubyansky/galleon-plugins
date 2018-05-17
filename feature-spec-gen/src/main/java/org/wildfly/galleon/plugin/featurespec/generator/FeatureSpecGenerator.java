@@ -16,8 +16,11 @@
  */
 package org.wildfly.galleon.plugin.featurespec.generator;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -33,6 +36,10 @@ import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.Property;
 import org.jboss.galleon.ProvisioningDescriptionException;
 import org.jboss.galleon.ProvisioningException;
+import org.jboss.modules.LocalModuleLoader;
+import org.jboss.modules.Module;
+import org.jboss.modules.ModuleLoader;
+import org.wildfly.core.embedded.Configuration;
 import org.wildfly.core.embedded.EmbeddedProcessFactory;
 import org.wildfly.core.embedded.EmbeddedProcessStartException;
 import org.wildfly.core.embedded.HostController;
@@ -43,6 +50,14 @@ import org.wildfly.core.embedded.StandaloneServer;
  * @author Alexey Loubyansky
  */
 public class FeatureSpecGenerator {
+
+    private static final String SYSPROP_KEY_CLASS_PATH = "java.class.path";
+    private static final String SYSPROP_KEY_JBOSS_MODULES_DIR = "jboss.modules.dir";
+    private static final String SYSPROP_KEY_LOGGING_PROVIDER = "org.jboss.logging.provider";
+    private static final String SYSPROP_KEY_MODULE_PATH = "module.path";
+    private static final String SYSPROP_KEY_SYSTEM_MODULES = "jboss.modules.system.pkgs";
+
+    private static final String JBOSS_MODULES_DIR_NAME = "modules";
 
     private Map<String, FeatureSpecNode> nodesBySpecName = new HashMap<>();
     private Map<String, Map<String, FeatureSpecNode>> referencedSpecs = new HashMap<>();
@@ -169,7 +184,13 @@ public class FeatureSpecGenerator {
     }
 
     private static ModelNode readStandaloneFeatures(Path wildfly) throws ProvisioningException {
-        StandaloneServer server = EmbeddedProcessFactory.createStandaloneServer(wildfly.toAbsolutePath().toString(), null, null, new String[]{"--admin-only"});
+        ModuleLoader moduleLoader = initModuleLoader(wildfly.resolve("modules").toString());
+        final Configuration embeddedConfig = Configuration.Builder.of(wildfly)
+                .addCommandArgument("--admin-only")
+                .setModuleLoader(moduleLoader)
+                .build();
+        //StandaloneServer server = EmbeddedProcessFactory.createStandaloneServer(wildfly.toAbsolutePath().toString(), null, null, new String[]{"--admin-only"});
+        StandaloneServer server = EmbeddedProcessFactory.createStandaloneServer(embeddedConfig);
         try {
             server.start();
             try (ModelControllerClient client = server.getModelControllerClient()) {
@@ -181,11 +202,16 @@ public class FeatureSpecGenerator {
             throw new ProvisioningException("Failed to start embedded server", ex);
         } finally {
             server.stop();
+            close(moduleLoader);
         }
     }
 
    private static ModelNode readDomainFeatures(Path wildfly) throws ProvisioningException {
-        HostController host = EmbeddedProcessFactory.createHostController(wildfly.toAbsolutePath().toString(), null, null, new String[]{"--admin-only"});
+       final ModuleLoader moduleLoader = initModuleLoader(wildfly.resolve("modules").toString());
+        final Configuration embeddedConfig = Configuration.Builder.of(wildfly).addCommandArgument("--admin-only")
+                .setModuleLoader(moduleLoader).build();
+        //HostController host = EmbeddedProcessFactory.createHostController(wildfly.toAbsolutePath().toString(), null, null, new String[]{"--admin-only"});
+        final HostController host = EmbeddedProcessFactory.createHostController(embeddedConfig);
         try {
             host.start();
             try (ModelControllerClient client = host.getModelControllerClient()) {
@@ -197,8 +223,44 @@ public class FeatureSpecGenerator {
             throw new ProvisioningException("Failed to start embedded host controller", ex);
         } finally {
             host.stop();
+            close(moduleLoader);
         }
-    }
+   }
+
+   private static void close(ModuleLoader loader) {
+       System.out.println("CLOSE " + loader.getClass());
+       ((LocalModuleLoader)loader).close();
+   }
+
+   private static ModuleLoader initModuleLoader(String modulePath) throws ProvisioningException {
+       final Path moduleDir = Paths.get(trimPathToModulesDir(modulePath));
+       if (Files.notExists(moduleDir) || !Files.isDirectory(moduleDir)) {
+           throw new RuntimeException("The first directory of the specified module path " + modulePath + " is invalid or does not exist.");
+       }
+
+       final String classPath = System.getProperty(SYSPROP_KEY_CLASS_PATH);
+       try {
+           // Set up sysprop env
+           System.clearProperty(SYSPROP_KEY_CLASS_PATH);
+           System.setProperty(SYSPROP_KEY_MODULE_PATH, modulePath);
+
+           final StringBuilder packages = new StringBuilder("org.jboss.modules,org.jboss.dmr,org.jboss.threads,org.jboss.as.controller.client");
+           System.setProperty(SYSPROP_KEY_SYSTEM_MODULES, packages.toString());
+
+           // Get the module loader
+           return Module.getBootModuleLoader();
+       } finally {
+           // Return to previous state for classpath prop
+           if (classPath != null) {
+               System.setProperty(SYSPROP_KEY_CLASS_PATH, classPath);
+           }
+       }
+   }
+
+   private static String trimPathToModulesDir(String modulePath) {
+       int index = modulePath.indexOf(File.pathSeparator);
+       return index == -1 ? modulePath : modulePath.substring(0, index);
+   }
 
    private static ModelNode readFeatures(ModelControllerClient client) throws IOException, ProvisioningDescriptionException, XMLStreamException {
        ModelNode address = new ModelNode().setEmptyList();

@@ -142,6 +142,14 @@ public class WfFeatureSpecBuildMojo extends AbstractMojo {
                 final long secs = totalTime / 1000;
                 debug("Generated " + specsTotal + " feature specs in " + secs + "." + (totalTime - secs * 1000) + " secs");
             }
+
+            System.out.println("SLEEPING ");
+            try {
+                Thread.currentThread().sleep(1000*60);
+            } catch (InterruptedException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
         }
     }
 
