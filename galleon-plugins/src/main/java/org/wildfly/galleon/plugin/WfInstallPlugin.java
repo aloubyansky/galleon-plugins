@@ -173,7 +173,12 @@ public class WfInstallPlugin extends ProvisioningPluginWithOptions implements In
                         if (i < 0) {
                             throw new ProvisioningException("Failed to locate '=' character in " + line);
                         }
-                        artifactVersions.put(line.substring(0, i), line.substring(i + 1));
+                        final String name = line.substring(0, i);
+                        String value = System.getProperty(name);
+                        if(value == null) {
+                            value = line.substring(i + 1);
+                        }
+                        artifactVersions.put(name, value);
                     }
                 } catch (IOException e) {
                     throw new ProvisioningException(Errors.readFile(artifactProps), e);

@@ -21,7 +21,9 @@ import java.util.Map;
 import java.util.Properties;
 
 /**
+ *
  * @author Stuart Douglas
+ * @author Alexey Loubyansky
  */
 public class MapPropertyResolver implements PropertyResolver {
 
@@ -32,7 +34,7 @@ public class MapPropertyResolver implements PropertyResolver {
     }
 
     public MapPropertyResolver(Properties properties) {
-        this.props = new HashMap<>();
+        this.props = new HashMap<>(properties.size());
         for(Map.Entry<Object, Object> p : properties.entrySet()) {
             props.put(p.getKey().toString(), p.getValue() == null ? null: p.getValue().toString());
         }
