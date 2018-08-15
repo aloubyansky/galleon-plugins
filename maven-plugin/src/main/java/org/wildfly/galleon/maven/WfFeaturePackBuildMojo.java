@@ -66,7 +66,6 @@ import org.eclipse.aether.repository.RemoteRepository;
 import org.eclipse.aether.resolution.ArtifactRequest;
 import org.eclipse.aether.resolution.ArtifactResolutionException;
 import org.eclipse.aether.resolution.ArtifactResult;
-import org.jboss.galleon.ArtifactCoords;
 import org.jboss.galleon.Constants;
 import org.jboss.galleon.Errors;
 import org.jboss.galleon.ProvisioningDescriptionException;
@@ -75,7 +74,6 @@ import org.jboss.galleon.config.ConfigModel;
 import org.jboss.galleon.config.FeaturePackConfig;
 import org.jboss.galleon.layout.FeaturePackDescriber;
 import org.jboss.galleon.layout.FeaturePackDescription;
-import org.jboss.galleon.maven.plugin.FpMavenErrors;
 import org.jboss.galleon.spec.FeaturePackSpec;
 import org.jboss.galleon.spec.PackageSpec;
 import org.jboss.galleon.universe.FeaturePackLocation;
@@ -227,7 +225,7 @@ public class WfFeaturePackBuildMojo extends AbstractMojo {
 
         // feature-pack build config
         try {
-            wfFpConfig = Util.loadFeaturePackBuildConfig(getFPConfigFile());
+            wfFpConfig = FeaturePackBuildModelParser.parse(getFPConfigFile());
         } catch (ProvisioningException e) {
             throw new MojoExecutionException("Failed to load feature-pack config file", e);
         }
@@ -792,13 +790,13 @@ public class WfFeaturePackBuildMojo extends AbstractMojo {
         try {
             result = repoSystem.resolveArtifact(repoSession, getArtifactRequest(coords));
         } catch (ArtifactResolutionException e) {
-            throw new ProvisioningException(FpMavenErrors.artifactResolution(coords), e);
+            throw new ProvisioningException("Failed to resolve artifact " + coords, e);
         }
         if(!result.isResolved()) {
-            throw new ProvisioningException(FpMavenErrors.artifactResolution(coords));
+            throw new ProvisioningException("Failed to resolve artifact " + coords);
         }
         if(result.isMissing()) {
-            throw new ProvisioningException(FpMavenErrors.artifactMissing(coords));
+            throw new ProvisioningException("Missing artifact " + coords);
         }
         return Paths.get(result.getArtifact().getFile().toURI());
     }

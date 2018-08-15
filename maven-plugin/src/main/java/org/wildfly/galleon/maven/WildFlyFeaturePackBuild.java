@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.jboss.galleon.ArtifactCoords;
 import org.jboss.galleon.config.ConfigModel;
 import org.jboss.galleon.spec.CapabilitySpec;
 import org.jboss.galleon.universe.FeaturePackLocation;

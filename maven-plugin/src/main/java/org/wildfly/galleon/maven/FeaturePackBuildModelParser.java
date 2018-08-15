@@ -17,13 +17,18 @@
 package org.wildfly.galleon.maven;
 
 
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 
+import org.jboss.galleon.Errors;
+import org.jboss.galleon.ProvisioningException;
 import org.jboss.staxmapper.XMLMapper;
 
 /**
@@ -35,6 +40,22 @@ public class FeaturePackBuildModelParser {
     private static final QName ROOT_3_0 = new QName(FeaturePackBuildModelParser30.NAMESPACE_3_0, FeaturePackBuildModelParser30.Element.BUILD.getLocalName());
 
     private static final XMLInputFactory INPUT_FACTORY = XMLInputFactory.newInstance();
+
+    private static FeaturePackBuildModelParser INSTANCE;
+
+    public static FeaturePackBuildModelParser getInstance() {
+        return INSTANCE == null ? INSTANCE = new FeaturePackBuildModelParser() : INSTANCE;
+    }
+
+    public static WildFlyFeaturePackBuild parse(Path configFile) throws ProvisioningException {
+        try (InputStream configStream = Files.newInputStream(configFile)) {
+            return getInstance().parse(configStream);
+        } catch (XMLStreamException e) {
+            throw new ProvisioningException(Errors.parseXml(configFile), e);
+        } catch (IOException e) {
+            throw new ProvisioningException(Errors.openFile(configFile), e);
+        }
+    }
 
     private final XMLMapper mapper;
 
