@@ -418,6 +418,17 @@ public class WfFeaturePackBuildMojo extends AbstractMojo {
             }
         }
 
+        if(buildConfig.hasDiffFilter()) {
+            try(BufferedWriter writer = Files.newBufferedWriter(fpResourcesDir.resolve(Constants.GALLEON_DIFF_FILTER))) {
+                for(String filter : buildConfig.getDiffFilter()) {
+                    writer.write(filter);
+                    writer.newLine();
+                }
+            } catch (IOException e) {
+                throw new MojoExecutionException(Errors.writeFile(targetResources.resolve(Constants.GALLEON_DIFF_FILTER)), e);
+            }
+        }
+
         // build feature-packs from the layout and attach as project artifacts
         try (DirectoryStream<Path> wdStream = Files.newDirectoryStream(workDir, entry -> Files.isDirectory(entry))) {
             for (Path groupDir : wdStream) {

@@ -51,6 +51,7 @@ public class WildFlyFeaturePackBuild {
         private List<String> standaloneExtensions = Collections.emptyList();
         private List<String> domainExtensions = Collections.emptyList();
         private List<String> hostExtensions = Collections.emptyList();
+        private List<String> diffFilter = Collections.emptyList();
 
         private Builder() {
         }
@@ -110,6 +111,11 @@ public class WildFlyFeaturePackBuild {
             return this;
         }
 
+        public Builder addDiffFilter(String path) {
+            diffFilter = CollectionUtils.add(diffFilter, path);
+            return this;
+        }
+
         public WildFlyFeaturePackBuild build() {
             return new WildFlyFeaturePackBuild(this);
         }
@@ -134,6 +140,7 @@ public class WildFlyFeaturePackBuild {
     private final List<String> standaloneExtensions;
     private final List<String> domainExtensions;
     private final List<String> hostExtensions;
+    private final List<String> diffFilter;
 
     private WildFlyFeaturePackBuild(Builder builder) {
         this.producer = builder.producer;
@@ -147,6 +154,7 @@ public class WildFlyFeaturePackBuild {
         this.standaloneExtensions = CollectionUtils.unmodifiable(builder.standaloneExtensions);
         this.domainExtensions = CollectionUtils.unmodifiable(builder.domainExtensions);
         this.hostExtensions = CollectionUtils.unmodifiable(builder.hostExtensions);
+        this.diffFilter = CollectionUtils.unmodifiable(builder.diffFilter);
     }
 
     public FeaturePackLocation getProducer() {
@@ -223,5 +231,13 @@ public class WildFlyFeaturePackBuild {
 
     public List<String> getHostExtensions() {
         return hostExtensions;
+    }
+
+    public boolean hasDiffFilter() {
+        return !diffFilter.isEmpty();
+    }
+
+    public List<String> getDiffFilter() {
+        return diffFilter;
     }
 }

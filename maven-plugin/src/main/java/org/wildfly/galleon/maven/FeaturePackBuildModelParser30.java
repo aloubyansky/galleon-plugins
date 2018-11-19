@@ -63,9 +63,11 @@ class FeaturePackBuildModelParser30 implements XMLElementReader<WildFlyFeaturePa
         DEFAULT_PACKAGES("default-packages"),
         DEPENDENCIES("dependencies"),
         DEPENDENCY("dependency"),
+        DIFF("diff"),
         DOMAIN("domain"),
         EXTENSION("extension"),
         EXTENSIONS("extensions"),
+        FILTER("filter"),
         GENERATE_FEATURE_SPECS("generate-feature-specs"),
         GROUP("group"),
         HOST("host"),
@@ -86,7 +88,7 @@ class FeaturePackBuildModelParser30 implements XMLElementReader<WildFlyFeaturePa
         private static final Map<QName, Element> elements;
 
         static {
-            Map<QName, Element> elementsMap = new HashMap<>(23);
+            Map<QName, Element> elementsMap = new HashMap<>(25);
             elementsMap.put(new QName(NAMESPACE_3_0, Element.BUILD.getLocalName()), Element.BUILD);
             elementsMap.put(new QName(NAMESPACE_3_0, Element.CONFIG.getLocalName()), Element.CONFIG);
             elementsMap.put(new QName(NAMESPACE_3_0, Element.COPY.getLocalName()), Element.COPY);
@@ -94,9 +96,11 @@ class FeaturePackBuildModelParser30 implements XMLElementReader<WildFlyFeaturePa
             elementsMap.put(new QName(NAMESPACE_3_0, Element.DEFAULT_PACKAGES.getLocalName()), Element.DEFAULT_PACKAGES);
             elementsMap.put(new QName(NAMESPACE_3_0, Element.DEPENDENCIES.getLocalName()), Element.DEPENDENCIES);
             elementsMap.put(new QName(NAMESPACE_3_0, Element.DEPENDENCY.getLocalName()), Element.DEPENDENCY);
+            elementsMap.put(new QName(NAMESPACE_3_0, Element.DIFF.getLocalName()), Element.DIFF);
             elementsMap.put(new QName(NAMESPACE_3_0, Element.DOMAIN.getLocalName()), Element.DOMAIN);
             elementsMap.put(new QName(NAMESPACE_3_0, Element.EXTENSION.getLocalName()), Element.EXTENSION);
             elementsMap.put(new QName(NAMESPACE_3_0, Element.EXTENSIONS.getLocalName()), Element.EXTENSIONS);
+            elementsMap.put(new QName(NAMESPACE_3_0, Element.FILTER.getLocalName()), Element.FILTER);
             elementsMap.put(new QName(NAMESPACE_3_0, Element.GENERATE_FEATURE_SPECS.getLocalName()), Element.GENERATE_FEATURE_SPECS);
             elementsMap.put(new QName(NAMESPACE_3_0, Element.GROUP.getLocalName()), Element.GROUP);
             elementsMap.put(new QName(NAMESPACE_3_0, Element.HOST.getLocalName()), Element.HOST);
@@ -255,6 +259,9 @@ class FeaturePackBuildModelParser30 implements XMLElementReader<WildFlyFeaturePa
                             break;
                         case GENERATE_FEATURE_SPECS:
                             parseGenerateFeatureSpecs(reader, builder);
+                            break;
+                        case DIFF:
+                            parseDiff(reader, builder);
                             break;
                         default:
                             throw ParsingUtils.unexpectedContent(reader);
@@ -640,6 +647,31 @@ class FeaturePackBuildModelParser30 implements XMLElementReader<WildFlyFeaturePa
                                 default:
                                     throw new XMLStreamException("Unexpected extension target " + e, reader.getLocation());
                             }
+                            break;
+                        default:
+                            throw ParsingUtils.unexpectedContent(reader);
+                    }
+                    break;
+                }
+                default: {
+                    throw ParsingUtils.unexpectedContent(reader);
+                }
+            }
+        }
+        throw ParsingUtils.endOfDocument(reader.getLocation());
+    }
+
+    private static void parseDiff(final XMLStreamReader reader, final WildFlyFeaturePackBuild.Builder builder) throws XMLStreamException {
+        while (reader.hasNext()) {
+            switch (reader.nextTag()) {
+                case XMLStreamConstants.END_ELEMENT: {
+                    return;
+                }
+                case XMLStreamConstants.START_ELEMENT: {
+                    final Element element = Element.of(reader.getName());
+                    switch (element) {
+                        case FILTER:
+                            builder.addDiffFilter(reader.getElementText().trim());
                             break;
                         default:
                             throw ParsingUtils.unexpectedContent(reader);
