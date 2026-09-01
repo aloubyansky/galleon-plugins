@@ -215,20 +215,23 @@ public class SbomArtifactRecorder implements ArtifactRecorder {
      */
     private AssemblyComponents buildModel(ProductRelease release) {
         final AssemblyComponents model = new AssemblyComponents();
+        // Provisioning records a flat artifact inventory, not a resolved transitive
+        // dependency graph, so every component's dependencies are unknown and must
+        // not be declared as empty leaf entries in the CycloneDX dependency graph.
         for (RecordedArtifact ra : recorded) {
             if (isShadedOnly(ra.coords())) {
                 continue;
             }
-            model.addComponent(PackageComponent.of(ra.coords(), ra.archivePath(), ra.hash()));
+            model.addComponent(PackageComponent.of(ra.coords(), ra.archivePath(), ra.hash(), false));
         }
         for (ShadedComponent sc : shaded) {
             final List<AssemblyComponent> nested = new ArrayList<>(sc.deps().size());
             for (ArtifactCoords dep : sc.deps()) {
-                nested.add(PackageComponent.of(dep, null, null));
+                nested.add(PackageComponent.of(dep, null, null, false));
             }
             model.addComponent(new PackageComponent(
                     new GenericPackageRef(sc.name(), sc.version()),
-                    sc.archivePath(), null, List.of(), nested));
+                    sc.archivePath(), null, List.of(), nested, false));
         }
         model.setMetadata(buildMetadata(release));
         return model;

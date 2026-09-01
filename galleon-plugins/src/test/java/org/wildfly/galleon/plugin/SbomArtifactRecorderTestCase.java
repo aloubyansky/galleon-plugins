@@ -61,6 +61,24 @@ public class SbomArtifactRecorderTestCase {
     }
 
     @Test
+    public void flatArtifactHasNoEmptyLeafDependencyEntry() throws Exception {
+        // Provisioning records a flat inventory, not a resolved dependency graph,
+        // so a recorded artifact must not be declared as an empty dependency entry
+        // (which would falsely assert it has no dependencies).
+        final Path outputFile = installBase.resolve("sbom.cdx.json");
+        final SbomArtifactRecorder recorder = createRecorder(outputFile, "json");
+
+        final MavenArtifact artifact = mavenArtifact("org.wildfly.core", "wildfly-launcher", "31.0.0.Final");
+        recorder.record(artifact, createArtifactFile("modules/launcher/wildfly-launcher-31.0.0.Final.jar"));
+        recorder.writeManifest();
+
+        final Bom bom = new JsonParser().parse(outputFile.toFile());
+        final String artifactRef = "pkg:maven/org.wildfly.core/wildfly-launcher@31.0.0.Final";
+        assertTrue("flat artifact must not have its own dependency entry",
+                bom.getDependencies().stream().noneMatch(d -> artifactRef.equals(d.getRef())));
+    }
+
+    @Test
     public void generateXmlSbom() throws Exception {
         final Path outputFile = installBase.resolve("sbom.cdx.xml");
         final SbomArtifactRecorder recorder = createRecorder(outputFile, "xml");
